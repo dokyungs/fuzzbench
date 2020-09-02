@@ -15,11 +15,13 @@
 ARG parent_image
 FROM $parent_image
 
+COPY patch-exectime_keepseed.diff /
 COPY patch.diff /
 
 RUN git clone https://github.com/llvm/llvm-project.git /llvm-project && \
     cd /llvm-project && \
     git checkout bb54bcf84970c04c9748004f3a4cf59b0c1832a7 && \
+    patch -p1 < /patch-exectime_keepseed.diff && \
     patch -p1 < /patch.diff && \
     cd /llvm-project/compiler-rt/lib/fuzzer && \
     (for f in *.cpp; do \

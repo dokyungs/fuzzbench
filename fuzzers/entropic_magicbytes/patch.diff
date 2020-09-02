@@ -1,4 +1,4 @@
-commit c4ecc3388200ea614476cece3a7dde6f0c1a7ca8
+commit f111ea76835ef11dd05e0a5451c954b4afa7c89a
 Author: Dokyung Song <dokyungs@google.com>
 Date:   Fri Aug 21 00:54:14 2020 +0000
 
@@ -33,112 +33,104 @@ Date:   Fri Aug 21 00:54:14 2020 +0000
     Differential Revision: https://reviews.llvm.org/D86358
 
 diff --git a/compiler-rt/lib/fuzzer/FuzzerMutate.cpp b/compiler-rt/lib/fuzzer/FuzzerMutate.cpp
-index 29541eac5dc..75527c95aca 100644
+index df9ada45bb0..38251567856 100644
 --- a/compiler-rt/lib/fuzzer/FuzzerMutate.cpp
 +++ b/compiler-rt/lib/fuzzer/FuzzerMutate.cpp
-@@ -379,6 +379,67 @@ size_t MutationDispatcher::Mutate_ChangeASCIIInteger(uint8_t *Data, size_t Size,
+@@ -379,6 +379,76 @@ size_t MutationDispatcher::Mutate_ChangeASCIIInteger(uint8_t *Data, size_t Size,
    return Size;
  }
  
++// The following magic constants were borrowed from AFL.
++
 +#define INTERESTING_8                                                          \
-+  -128,    /* Overflow signed 8-bit when decremented  */                       \
-+      -1,  /*                                         */                       \
-+      0,   /*                                         */                       \
-+      1,   /*                                         */                       \
-+      16,  /* One-off with common buffer size         */                       \
-+      32,  /* One-off with common buffer size         */                       \
-+      64,  /* One-off with common buffer size         */                       \
-+      100, /* One-off with common buffer size         */                       \
-+      127  /* Overflow signed 8-bit when incremented  */
++      -128, /* Overflow signed 8-bit when decremented  */                      \
++      -1,   /*                                         */                      \
++      0,    /*                                         */                      \
++      1,    /*                                         */                      \
++      16,   /* One-off with common buffer size         */                      \
++      32,   /* One-off with common buffer size         */                      \
++      64,   /* One-off with common buffer size         */                      \
++      100,  /* One-off with common buffer size         */                      \
++      127   /* Overflow signed 8-bit when incremented  */
 +
 +#define INTERESTING_16                                                         \
-+  -32768,   /* Overflow signed 16-bit when decremented */                      \
-+      -129, /* Overflow signed 8-bit                   */                      \
-+      128,  /* Overflow signed 8-bit                   */                      \
-+      255,  /* Overflow unsig 8-bit when incremented   */                      \
-+      256,  /* Overflow unsig 8-bit                    */                      \
-+      512,  /* One-off with common buffer size         */                      \
-+      1000, /* One-off with common buffer size         */                      \
-+      1024, /* One-off with common buffer size         */                      \
-+      4096, /* One-off with common buffer size         */                      \
-+      32767 /* Overflow signed 16-bit when incremented */
++      -32768, /* Overflow signed 16-bit when decremented */                    \
++      -129,   /* Overflow signed 8-bit                   */                    \
++      128,    /* Overflow signed 8-bit                   */                    \
++      255,    /* Overflow unsig 8-bit when incremented   */                    \
++      256,    /* Overflow unsig 8-bit                    */                    \
++      512,    /* One-off with common buffer size         */                    \
++      1000,   /* One-off with common buffer size         */                    \
++      1024,   /* One-off with common buffer size         */                    \
++      4096,   /* One-off with common buffer size         */                    \
++      32767   /* Overflow signed 16-bit when incremented */
 +
 +#define INTERESTING_32                                                         \
-+  -2147483648LL,  /* Overflow signed 32-bit when decremented */                \
-+      -100663046, /* Large negative number (endian-agnostic) */                \
-+      -32769,     /* Overflow signed 16-bit                  */                \
-+      32768,      /* Overflow signed 16-bit                  */                \
-+      65535,      /* Overflow unsig 16-bit when incremented  */                \
-+      65536,      /* Overflow unsig 16 bit                   */                \
-+      100663045,  /* Large positive number (endian-agnostic) */                \
-+      2147483647  /* Overflow signed 32-bit when incremented */
++      -2147483648LL, /* Overflow signed 32-bit when decremented */             \
++      -100663046,    /* Large negative number (endian-agnostic) */             \
++      -32769,        /* Overflow signed 16-bit                  */             \
++      32768,         /* Overflow signed 16-bit                  */             \
++      65535,         /* Overflow unsig 16-bit when incremented  */             \
++      65536,         /* Overflow unsig 16 bit                   */             \
++      100663045,     /* Large positive number (endian-agnostic) */             \
++      2147483647     /* Overflow signed 32-bit when incremented */
 +
-+template <class T> class MagicInt8 {
-+public:
-+  static constexpr T Values[] = {INTERESTING_8};
-+};
++template <class T> static T GetRandomMagic(Random &Rand) {
++  static_assert(std::is_integral<T>::value, "Invalid type for magic values");
 +
-+template <class T> class MagicInt16 {
-+public:
-+  static constexpr T Values[] = {INTERESTING_8, INTERESTING_16};
-+};
-+
-+template <class T> class MagicInt32 {
-+public:
-+  static constexpr T Values[] = {INTERESTING_8, INTERESTING_16, INTERESTING_32};
-+};
-+
-+// Definitions
-+template <class T> constexpr T MagicInt8<T>::Values[];
-+template <class T> constexpr T MagicInt16<T>::Values[];
-+template <class T> constexpr T MagicInt32<T>::Values[];
-+
-+template <class T>
-+using MagicInt = typename std::conditional<
-+    sizeof(T) == 1, MagicInt8<int8_t>,
-+    typename std::conditional<
-+        sizeof(T) == 2, MagicInt16<int16_t>,
-+        typename std::conditional<sizeof(T) == 4, MagicInt32<int32_t>,
-+                                  MagicInt32<int64_t>>::type>::type>::type;
++  T Val = 0;
++  switch (sizeof(T)) {
++  case 1: {
++    constexpr int8_t Magics[] = {INTERESTING_8};
++    int8_t SignedVal = Magics[Rand(sizeof(Magics) / sizeof(int8_t))];
++    Val = static_cast<T>(SignedVal);
++    break;
++  }
++  case 2: {
++    constexpr int16_t Magics[] = {INTERESTING_8, INTERESTING_16};
++    int16_t SignedVal = Magics[Rand(sizeof(Magics) / sizeof(int16_t))];
++    Val = static_cast<T>(SignedVal);
++    break;
++  }
++  case 4: {
++    constexpr int32_t Magics[] = {INTERESTING_8, INTERESTING_16,
++                                  INTERESTING_32};
++    int32_t SignedVal = Magics[Rand(sizeof(Magics) / sizeof(int32_t))];
++    Val = static_cast<T>(SignedVal);
++    break;
++  }
++  case 8: {
++    constexpr int64_t Magics[] = {INTERESTING_8, INTERESTING_16,
++                                  INTERESTING_32};
++    int64_t SignedVal = Magics[Rand(sizeof(Magics) / sizeof(int64_t))];
++    Val = static_cast<T>(SignedVal);
++    break;
++  }
++  }
++  return Val;
++}
 +
  template<class T>
  size_t ChangeBinaryInteger(uint8_t *Data, size_t Size, Random &Rand) {
    if (Size < sizeof(T)) return 0;
-@@ -389,6 +450,13 @@ size_t ChangeBinaryInteger(uint8_t *Data, size_t Size, Random &Rand) {
+@@ -389,6 +459,11 @@ size_t ChangeBinaryInteger(uint8_t *Data, size_t Size, Random &Rand) {
      Val = Size;
      if (Rand.RandBool())
        Val = Bswap(Val);
 +  } else if (Rand.RandBool()) {
-+    auto SignedVal =
-+        MagicInt<T>::Values[Rand(sizeof(MagicInt<T>::Values) / sizeof(T))];
-+    memcpy(&Val, &SignedVal, sizeof(SignedVal));
++    Val = GetRandomMagic<T>(Rand);
 +    if (Rand.RandBool()) {
 +      Val = Bswap(Val);
 +    }
    } else {
      memcpy(&Val, Data + Off, sizeof(Val));
      T Add = Rand(21);
-diff --git a/compiler-rt/test/fuzzer/OverwriteBytesMain.cpp b/compiler-rt/test/fuzzer/OverwriteBytesMain.cpp
-new file mode 100644
-index 00000000000..0c5f392cde2
---- /dev/null
-+++ b/compiler-rt/test/fuzzer/OverwriteBytesMain.cpp
-@@ -0,0 +1,9 @@
-+#include <cstdint>
-+#include <cstdio>
-+
-+#include "OverwriteBytesTest.h"
-+
-+int main(int argc, char **argv) {
-+  fwrite(SeedInput, sizeof(SeedInput[0]), sizeof(SeedInput), stdout);
-+  return 0;
-+}
 diff --git a/compiler-rt/test/fuzzer/OverwriteBytesTest.cpp b/compiler-rt/test/fuzzer/OverwriteBytesTest.cpp
 new file mode 100644
-index 00000000000..377a8797b70
+index 00000000000..f0fec9300d4
 --- /dev/null
 +++ b/compiler-rt/test/fuzzer/OverwriteBytesTest.cpp
-@@ -0,0 +1,33 @@
+@@ -0,0 +1,81 @@
 +// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 +// See https://llvm.org/LICENSE.txt for license information.
 +// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
@@ -152,32 +144,6 @@ index 00000000000..377a8797b70
 +#include <algorithm>
 +#include <vector>
 +
-+#include "OverwriteBytesTest.h"
-+
-+#define MAGIC_BYTE_VALUE 0x1
-+#define MAGIC_BYTE_OFFSET 0xf
-+
-+static volatile int *Nil = nullptr;
-+
-+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
-+  if (Size != sizeof(SeedInput)) {
-+    return 0;
-+  }
-+
-+  *(uint64_t *)(SeedInput + MAGIC_BYTE_OFFSET) = MAGIC_BYTE_VALUE;
-+
-+  if (memmem(Data, Size, SeedInput, Size) == Data) {
-+    *Nil = 42; // crash.
-+  }
-+
-+  return 0;
-+}
-diff --git a/compiler-rt/test/fuzzer/OverwriteBytesTest.h b/compiler-rt/test/fuzzer/OverwriteBytesTest.h
-new file mode 100644
-index 00000000000..def5705a435
---- /dev/null
-+++ b/compiler-rt/test/fuzzer/OverwriteBytesTest.h
-@@ -0,0 +1,38 @@
 +uint8_t SeedInput[] = {
 +    0xba,
 +    0xe3,
@@ -216,16 +182,46 @@ index 00000000000..def5705a435
 +    0x23,
 +    0x0f,
 +};
++
++#define MAGIC_BYTE_VALUE 0x1
++#define MAGIC_BYTE_OFFSET 0xf
++
++static volatile int *Nil = nullptr;
++
++#ifdef PRINT_SEED_INPUT
++
++int main(int argc, char **argv) {
++  fwrite(SeedInput, sizeof(SeedInput[0]), sizeof(SeedInput), stdout);
++  return 0;
++}
++
++#else
++
++extern "C" int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
++  if (Size != sizeof(SeedInput)) {
++    return 0;
++  }
++
++  *(uint64_t *)(SeedInput + MAGIC_BYTE_OFFSET) = MAGIC_BYTE_VALUE;
++
++  if (memmem(Data, Size, SeedInput, Size) == Data) {
++    *Nil = 42; // crash.
++  }
++
++  return 0;
++}
++
++#endif
 diff --git a/compiler-rt/test/fuzzer/overwrite-bytes.test b/compiler-rt/test/fuzzer/overwrite-bytes.test
 new file mode 100644
-index 00000000000..1383ff54492
+index 00000000000..7561acbe7d2
 --- /dev/null
 +++ b/compiler-rt/test/fuzzer/overwrite-bytes.test
 @@ -0,0 +1,9 @@
 +REQUIRES: linux, x86_64
 +RUN: %cpp_compiler %S/OverwriteBytesTest.cpp -o %t-OverwriteBytesTest
-+RUN: %cpp_compiler -fno-sanitize=fuzzer %S/OverwriteBytesMain.cpp -o %t-OverwriteBytesPrintSeed
-+RUN: %t-OverwriteBytesPrintSeed > %t-OverwriteBytesTest.seed
++RUN: %cpp_compiler -fno-sanitize=fuzzer -DPRINT_SEED_INPUT=1 %S/OverwriteBytesTest.cpp -o %t-OverwriteBytesTestPrintSeed
++RUN: %t-OverwriteBytesTestPrintSeed > %t-OverwriteBytesTest.seed
 +
 +RUN: not %run %t-OverwriteBytesTest -seed=1 -use_memmem=0 -mutate_depth=1 -reduce_inputs=0 -runs=10000000 -seed_inputs=%t-OverwriteBytesTest.seed 2>&1 | FileCheck %s
 +
